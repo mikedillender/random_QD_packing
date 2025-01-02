@@ -87,6 +87,7 @@ struct cell_pos{
             x=x1;y=y1;z=z1;
         }
     }
+    void print(){cout << "(" << unsigned(x) << "," << unsigned(y) << "," << unsigned(z) << ") ";}
     uint8_t x; uint8_t y;uint8_t z;
 };
 
@@ -125,13 +126,16 @@ void set_init(vec3 pos[],cell_pos pos_c[]){
 double LJ_eps = .1;
 double LJ_sig = 1.8;
 double max_force=2000;
+bool too_close=false;
 vec3 get_force(vec3 a, vec3 b){
     vec3 r_v = b - a;
     double r_mag = sqrt(r_v.x*r_v.x+r_v.y*r_v.y+r_v.z*r_v.z);
-    if(r_mag<1.5){
-        a.print();cout<<" and ";b.print();cout<<" have r = "<<r_mag<<"\n";
-    }
     double f = - 24 * LJ_eps * (pow((LJ_sig / r_mag),8)) * (1 - 2 * pow(LJ_sig / r_mag,6)) / (LJ_sig*LJ_sig);
+    if(r_mag<1.5){
+        a.print();cout<<" and ";b.print();cout<<" have r = "<<r_mag<<", f = "<<f<<"\n";
+        too_close= true;
+        if(f>100){f=100;}else if(f<-100){ f=-100;}
+    }
     r_v.scale(f/(r_mag*r_mag));
     /*if(r_v.x>max_force)
         r_v.x=max_force;
@@ -149,14 +153,62 @@ vec3 get_force(vec3 a, vec3 b){
     return r_v;
 
 }
+
+void force_cells(uint8_t x0,uint8_t y0,uint8_t z0,uint8_t x1,uint8_t y1,uint8_t z1, vec3 forces[], vec3 pos[], cell_pos cpos[]){
+    for (auto & i : cells[x0][y0][z0]){
+        for (auto & j : cells[x1][y1][z1]){
+            vec3 force= get_force(pos[i], pos[j]);
+            forces[i].subtract(force);
+            forces[j].add(force);
+            if(too_close){
+                cout<<i<<"-"<<j<<" (";cpos[i].print();cout<<") - (";cpos[j].print();cout<<") \n";
+                too_close= false;
+            }
+        }
+    }
+}
+
+void force_self(uint8_t x,uint8_t y,uint8_t z, vec3 forces[], vec3 pos[], cell_pos cpos[]) {
+    uint8_t sz=cells[x][y][z].size();
+    for (uint8_t i=0; i<sz; i++) {
+        uint16_t i_i=cells[x][y][z][i];
+        for(uint8_t j=i+1;j<sz;j++){
+            uint16_t j_i=cells[x][y][z][j];
+            vec3 force= get_force(pos[i_i], pos[j_i]);
+            forces[i_i].subtract(force);
+            forces[j_i].add(force);
+
+            if(too_close){
+                cout<<i_i<<"-"<<j_i<<"(self) (";cpos[i_i].print();cout<<") - (";cpos[j_i].print();cout<<") \n";
+                too_close= false;
+            }
+
+        }
+    }
+}
+
+void save_as_csv(const vec3 pos[], const std::string& filename) {
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << " for writing!" << std::endl;
+        return;
+    }
+    for (size_t n=0;n<Np;n++) {
+        file<<pos[n].x<<","<<pos[n].y<<","<<pos[n].z<<"\n";
+    }
+    file.close();
+    std::cout << "CSV saved to " << filename << std::endl;
+}
+
+
 int main(/*int argc=0, char** argv=nullptr*/){
     srand((unsigned) time(NULL));
 
     //ncell=10;
-    Lbox=20;
-    cell_w=4;
+    Lbox=18;
+    cell_w=3;
     ncell=(2*Lbox)/cell_w;
-    max_z_cell=(uint8_t)ncell;
+    max_z_cell=(uint8_t)ncell-1;
     cells = vector<vector<vector<vector<uint16_t>>>>(ncell,vector<vector<vector<uint16_t>>>(ncell,vector<vector<uint16_t>>(ncell,vector<uint16_t>())));
     Np = 20 * 20 * 4;
 
@@ -169,19 +221,51 @@ int main(/*int argc=0, char** argv=nullptr*/){
     int iter=0;
     double dt=.05;
     double avg_E=1000;
+    uint8_t num_cells=(uint8_t)ncell;
     while(iter<5000){
         avg_E=0;
-        for(int i=0; i<Np;i++){
+        /*for(int i=0; i<Np;i++){
             for(int j=i+1; j<Np;j++){
                 vec3 force= get_force(pos[i], pos[j]);
                 forces[i].subtract(force);
                 forces[j].add(force);
             }
-            forces[i].scale(dt);
             //cout<<"particle ";pos[i].print();cout<<" has force ";forces[i].print();cout<<"\n";
+        }*/
+        //uint8_t highest_z=0;
+        for(uint8_t z0=0; z0<=max_z_cell; z0++){
+            for(uint8_t x0=0;x0<num_cells;x0++){
+                uint8_t x1_max=(x0==num_cells-1)?x0:x0+1;
+                for(uint8_t y0=0; y0<num_cells; y0++){
+                    uint8_t y1_max=(y0==num_cells-1)?y0:y0+1;
+                    if(cells[x0][y0][z0].empty()){continue;}
+                    if(cells[x0][y0][z0].size()>1){
+                        force_self(x0,y0,z0,forces,pos,pos_c);
+                    }
+                    if(x0+1<num_cells){
+                        force_cells(x0,y0,z0,x0+1,y0,z0,forces,pos,pos_c);
+                    }
+                    if(y0+1<num_cells){
+                        for(uint8_t x1=(x0==0)?0:x0-1; x1<=x1_max; x1++) {
+                            force_cells(x0,y0,z0,x1,y0+1,z0,forces,pos,pos_c);
+                        }
+                    }
+                    if(z0+1<=max_z_cell){
+                        for(uint8_t y1=(y0==0)?0:y0-1; y1<=y1_max; y1++) {
+                            for(uint8_t x1=(x0==0)?0:x0-1; x1<=x1_max; x1++) {
+                                force_cells(x0,y0,z0,x1,y1,z0+1,forces,pos,pos_c);
+                            }
+                        }
+                    }
+                    //highest_z=z0;
+                }
+            }
+
         }
+        //max_z_cell=(uint8_t)highest_z;
         double avg_z=0;
         for(int i=0; i<Np;i++){
+            forces[i].scale(dt);
             vel[i].add(forces[i]);
             pos[i].add_scaled(vel[i],dt);
             avg_E+=vel[i].x*vel[i].x+vel[i].y*vel[i].y+vel[i].z*vel[i].z;
@@ -207,6 +291,9 @@ int main(/*int argc=0, char** argv=nullptr*/){
             cout<<iter<<": avg z = "<<avg_z/Np<<", E = "<<avg_E/Np<<"\n";
         iter++;
     }
+
+    string name="output2_N"+to_string(Np)+"_w"+to_string(Lbox)+".csv";
+    save_as_csv(pos, name);
     /*for(int i=0; i<Np;i++){
         pos[i].print();
         cout<<"\n";
