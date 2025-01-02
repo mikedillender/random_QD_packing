@@ -205,12 +205,12 @@ int main(/*int argc=0, char** argv=nullptr*/){
     srand((unsigned) time(NULL));
 
     //ncell=10;
-    Lbox=18;
+    Lbox=27;
     cell_w=3;
     ncell=(2*Lbox)/cell_w;
     max_z_cell=(uint8_t)ncell-1;
     cells = vector<vector<vector<vector<uint16_t>>>>(ncell,vector<vector<vector<uint16_t>>>(ncell,vector<vector<uint16_t>>(ncell,vector<uint16_t>())));
-    Np = 20 * 20 * 4;
+    Np = 24 * 24 * 4;
 
     vec3 *pos = new vec3[Np];
     cell_pos *pos_c = new cell_pos[Np];
