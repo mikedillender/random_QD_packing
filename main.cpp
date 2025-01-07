@@ -6,6 +6,7 @@
 #include <queue>
 #include <cstdint>
 #include <cmath>
+#include <chrono>
 #include <array>
 #include <stack>
 
@@ -17,7 +18,7 @@ int Lbox; // width
 int ncell;
 int cell_w;
 uint8_t max_z_cell;
-vector<vector<vector<vector<uint16_t>>>> cells;
+vector<vector<vector<vector<uint32_t>>>> cells;
 
 struct vec3{
     vec3(){ x=0;y=0;z=0;}
@@ -47,7 +48,7 @@ struct vec3{
     double x; double y; double z;
 };
 
-void remove_from_cell(uint8_t x,uint8_t y,uint8_t z,uint16_t i){
+void remove_from_cell(uint8_t x,uint8_t y,uint8_t z,uint32_t i){
     auto it = std::lower_bound(cells[x][y][z].begin(), cells[x][y][z].end(), i);
 
     // Check if X is present
@@ -55,7 +56,7 @@ void remove_from_cell(uint8_t x,uint8_t y,uint8_t z,uint16_t i){
         cells[x][y][z].erase(it); // Remove the element
     }
 }
-void add_to_cell(uint8_t x,uint8_t y,uint8_t z,int i){
+void add_to_cell(uint8_t x,uint8_t y,uint8_t z,uint32_t i){
     auto it = std::lower_bound(cells[x][y][z].begin(), cells[x][y][z].end(), i);
     cells[x][y][z].insert(it, i);
     if(z>max_z_cell){
@@ -130,6 +131,11 @@ bool too_close=false;
 vec3 get_force(vec3 a, vec3 b){
     vec3 r_v = b - a;
     double r_mag = sqrt(r_v.x*r_v.x+r_v.y*r_v.y+r_v.z*r_v.z);
+    if(r_mag==0){
+        a.print();cout<<" is for some reason applying force to itself\n";
+        too_close= true;
+        return {0,0,0};
+    }
     double f = - 24 * LJ_eps * (pow((LJ_sig / r_mag),8)) * (1 - 2 * pow(LJ_sig / r_mag,6)) / (LJ_sig*LJ_sig);
     if(r_mag<1.5){
         a.print();cout<<" and ";b.print();cout<<" have r = "<<r_mag<<", f = "<<f<<"\n";
@@ -162,6 +168,7 @@ void force_cells(uint8_t x0,uint8_t y0,uint8_t z0,uint8_t x1,uint8_t y1,uint8_t 
             forces[j].add(force);
             if(too_close){
                 cout<<i<<"-"<<j<<" (";cpos[i].print();cout<<") - (";cpos[j].print();cout<<") \n";
+                cout<<i<<"-"<<j<<" ("<<x0<<","<<y0<<","<<z0<<") - ("<<x1<<","<<y1<<","<<z1<<") \n";
                 too_close= false;
             }
         }
@@ -171,9 +178,9 @@ void force_cells(uint8_t x0,uint8_t y0,uint8_t z0,uint8_t x1,uint8_t y1,uint8_t 
 void force_self(uint8_t x,uint8_t y,uint8_t z, vec3 forces[], vec3 pos[], cell_pos cpos[]) {
     uint8_t sz=cells[x][y][z].size();
     for (uint8_t i=0; i<sz; i++) {
-        uint16_t i_i=cells[x][y][z][i];
+        uint32_t i_i=cells[x][y][z][i];
         for(uint8_t j=i+1;j<sz;j++){
-            uint16_t j_i=cells[x][y][z][j];
+            uint32_t j_i=cells[x][y][z][j];
             vec3 force= get_force(pos[i_i], pos[j_i]);
             forces[i_i].subtract(force);
             forces[j_i].add(force);
@@ -187,13 +194,31 @@ void force_self(uint8_t x,uint8_t y,uint8_t z, vec3 forces[], vec3 pos[], cell_p
     }
 }
 
-void save_as_csv(const vec3 pos[], const std::string& filename) {
+void get_nns(uint32_t i, const vec3 pos[], const cell_pos pos_c[], ofstream file){
+    uint8_t cx0=pos_c[i].x;
+    uint8_t cy0=pos_c[i].y;
+    uint8_t cz0=pos_c[i].z;
+    uint8_t cx_max=(cx0+1==ncell)?cx0:cx0+1;
+    uint8_t cy_max=(cy0+1==ncell)?cy0:cy0+1;
+    uint8_t cz_max=(cz0+1==ncell)?cz0:cz0+1;
+    vector<uint32_t> closest;
+    for(uint8_t cx=(0<cx0)?cx0-1:cx0; cx<cx_max; cx++){
+        for(uint8_t cy=(0<cy0)?cy0-1:cy0; cy<cy_max; cy++) {
+            for(uint8_t cz=(0<cz0)?cz0-1:cz0; cz<cz_max; cz++) {
+
+            }
+        }
+    }
+}
+
+void save_as_csv(const vec3 pos[], const cell_pos pos_c[], const std::string& filename) {
     std::ofstream file(filename);
     if (!file.is_open()) {
         std::cerr << "Error: Could not open file " << filename << " for writing!" << std::endl;
         return;
     }
-    for (size_t n=0;n<Np;n++) {
+    vector<uint32_t> closest=;
+    for (uint32_t n=0;n<Np;n++) {
         file<<pos[n].x<<","<<pos[n].y<<","<<pos[n].z<<"\n";
     }
     file.close();
@@ -205,12 +230,12 @@ int main(/*int argc=0, char** argv=nullptr*/){
     srand((unsigned) time(NULL));
 
     //ncell=10;
-    Lbox=27;
+    Lbox=180;
     cell_w=3;
     ncell=(2*Lbox)/cell_w;
     max_z_cell=(uint8_t)ncell-1;
-    cells = vector<vector<vector<vector<uint16_t>>>>(ncell,vector<vector<vector<uint16_t>>>(ncell,vector<vector<uint16_t>>(ncell,vector<uint16_t>())));
-    Np = 24 * 24 * 4;
+    cells = vector<vector<vector<vector<uint32_t>>>>(ncell,vector<vector<vector<uint32_t>>>(ncell,vector<vector<uint32_t>>(ncell,vector<uint32_t>())));
+    Np = (int)(Lbox * Lbox * 3.2);
 
     vec3 *pos = new vec3[Np];
     cell_pos *pos_c = new cell_pos[Np];
@@ -222,6 +247,9 @@ int main(/*int argc=0, char** argv=nullptr*/){
     double dt=.05;
     double avg_E=1000;
     uint8_t num_cells=(uint8_t)ncell;
+    auto start = chrono::high_resolution_clock::now();
+    double last_E=1;
+    double last_az=1;
     while(iter<5000){
         avg_E=0;
         /*for(int i=0; i<Np;i++){
@@ -232,13 +260,16 @@ int main(/*int argc=0, char** argv=nullptr*/){
             }
             //cout<<"particle ";pos[i].print();cout<<" has force ";forces[i].print();cout<<"\n";
         }*/
-        //uint8_t highest_z=0;
+        uint8_t highest_z=0;
         for(uint8_t z0=0; z0<=max_z_cell; z0++){
             for(uint8_t x0=0;x0<num_cells;x0++){
                 uint8_t x1_max=(x0==num_cells-1)?x0:x0+1;
                 for(uint8_t y0=0; y0<num_cells; y0++){
                     uint8_t y1_max=(y0==num_cells-1)?y0:y0+1;
                     if(cells[x0][y0][z0].empty()){continue;}
+                    if(z0>highest_z){
+                        highest_z=z0;
+                    }
                     if(cells[x0][y0][z0].size()>1){
                         force_self(x0,y0,z0,forces,pos,pos_c);
                     }
@@ -262,7 +293,7 @@ int main(/*int argc=0, char** argv=nullptr*/){
             }
 
         }
-        //max_z_cell=(uint8_t)highest_z;
+        max_z_cell=(uint8_t)highest_z;
         double avg_z=0;
         for(int i=0; i<Np;i++){
             forces[i].scale(dt);
@@ -283,17 +314,33 @@ int main(/*int argc=0, char** argv=nullptr*/){
                 vel[i].z = -.8 * vel[i].z;
             }
             pos_c[i].update(pos[i],i);
-            vel[i].scale(.6);
+            vel[i].scale(.9);
             forces[i].resetZ(2);
             avg_z+=pos[i].z;
         }
-        if(iter%50==0)
-            cout<<iter<<": avg z = "<<avg_z/Np<<", E = "<<avg_E/Np<<"\n";
+        if(iter%30==0){
+            auto end = chrono::high_resolution_clock::now();
+            avg_E=avg_E/Np;; avg_z=avg_z/Np+Lbox;
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+            cout<<iter<<": avg z = "<<avg_z<<", E = "<<avg_E;
+            if(iter>50){
+                cout<<" ("<<round(100*(avg_E/last_E))<<"%)";
+                if (avg_E/last_E>.98 && avg_E/last_E<1 && last_az-avg_z<.1){
+                    dt=dt/2;
+                    if(avg_E<.0001){
+                        iter=5000;
+                    }
+                }
+            }
+            cout<<", highest z = "<<unsigned(max_z_cell)<<", dt = "<<dt;
+            cout<<", ("<<std::chrono::duration_cast<std::chrono::milliseconds>(duration).count()<<" ms)\n";
+            start=end; last_E=avg_E; last_az=avg_z;
+        }
         iter++;
     }
 
     string name="output2_N"+to_string(Np)+"_w"+to_string(Lbox)+".csv";
-    save_as_csv(pos, name);
+    save_as_csv(pos, pos_c,name);
     /*for(int i=0; i<Np;i++){
         pos[i].print();
         cout<<"\n";
