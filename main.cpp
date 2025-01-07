@@ -36,6 +36,7 @@ struct vec3{
     void add(const vec3& p1){ x+=p1.x; y+=p1.y; z+=p1.z;};
     void add_scaled(const vec3& p1, double k){ x+= k * p1.x; y+= k * p1.y; z+= k * p1.z;};
     void subtract(const vec3& p1){ x-=p1.x; y-=p1.y; z-=p1.z;};
+    double distance2(const vec3& p1) const { return (x - p1.x) * (x - p1.x) + (y - p1.y) * (y - p1.y) + (z - p1.z) * (z - p1.z);};
     void resetZ(double grav){x=0;y=0;z=-grav;}
     vec3 operator+(vec3 const& obj){
         vec3 res(x + obj.x, y + obj.y, z + obj.z);
@@ -46,6 +47,17 @@ struct vec3{
         return res;
     }
     double x; double y; double z;
+};
+
+struct pos_r{
+    pos_r(){i=0;r=0;}
+    pos_r(uint32_t i1,double r1){i=i1;r=r1;}
+    bool operator<=(const pos_r& p1) const{ return r<=p1.r;};
+    bool operator>=(const pos_r& p1) const{ return r>=p1.r;};
+    bool operator<(const pos_r& p1) const{ return r<p1.r;};
+    bool operator>(const pos_r& p1) const{ return r>p1.r;};
+    bool operator==(const pos_r& p1) const{ return r==p1.r;};
+    uint32_t i; double r;
 };
 
 void remove_from_cell(uint8_t x,uint8_t y,uint8_t z,uint32_t i){
@@ -143,19 +155,6 @@ vec3 get_force(vec3 a, vec3 b){
         if(f>100){f=100;}else if(f<-100){ f=-100;}
     }
     r_v.scale(f/(r_mag*r_mag));
-    /*if(r_v.x>max_force)
-        r_v.x=max_force;
-    else if(r_v.x<-max_force)
-        r_v.x=-max_force;
-    if(r_v.y>max_force)
-        r_v.y=max_force;
-    else if(r_v.y<-max_force)
-        r_v.y=-max_force;
-    if(r_v.z>max_force)
-        r_v.z=max_force;
-    else if(r_v.z<-max_force)
-        r_v.z=-max_force;*/
-
     return r_v;
 
 }
@@ -194,35 +193,61 @@ void force_self(uint8_t x,uint8_t y,uint8_t z, vec3 forces[], vec3 pos[], cell_p
     }
 }
 
-void get_nns(uint32_t i, const vec3 pos[], const cell_pos pos_c[], ofstream file){
+void get_nns(uint32_t i, const vec3 pos[], const cell_pos pos_c[], ofstream *file){
     uint8_t cx0=pos_c[i].x;
     uint8_t cy0=pos_c[i].y;
     uint8_t cz0=pos_c[i].z;
     uint8_t cx_max=(cx0+1==ncell)?cx0:cx0+1;
     uint8_t cy_max=(cy0+1==ncell)?cy0:cy0+1;
     uint8_t cz_max=(cz0+1==ncell)?cz0:cz0+1;
-    vector<uint32_t> closest;
+    vector<pos_r> closest;
+    //cout<<i<<": ";
     for(uint8_t cx=(0<cx0)?cx0-1:cx0; cx<cx_max; cx++){
         for(uint8_t cy=(0<cy0)?cy0-1:cy0; cy<cy_max; cy++) {
             for(uint8_t cz=(0<cz0)?cz0-1:cz0; cz<cz_max; cz++) {
+                for (uint32_t j:cells[cx][cy][cz]){
+                    if(j==i){continue;}
+                    double r_mag = pos[i].distance2(pos[j]);
+                    pos_r pr=pos_r(j,r_mag);
 
+                    auto it = std::lower_bound(closest.begin(),closest.end(), pr);
+
+                    closest.insert(it, pr);
+                    //cout<<pr.i<<" ("<<pr.r<<"|"<<r_mag<<"), ";
+
+                }
             }
         }
     }
+    //cout<<"["<<closest.size()<<"] ";
+    for(uint32_t k=0; k<min(closest.size(),size_t(12));k++){
+        if(closest[k].r>10){break;}
+        //cout<<closest[k].i<<" ("<<closest[k].r<<"), ";
+        *file<<","<<closest[k].i;
+    }
+    //cout<<"\n";
+    *file<<"\n";
 }
 
 void save_as_csv(const vec3 pos[], const cell_pos pos_c[], const std::string& filename) {
+    auto start = chrono::high_resolution_clock::now();
+
     std::ofstream file(filename);
     if (!file.is_open()) {
         std::cerr << "Error: Could not open file " << filename << " for writing!" << std::endl;
         return;
     }
-    vector<uint32_t> closest=;
+    vector<uint32_t> closest;
     for (uint32_t n=0;n<Np;n++) {
-        file<<pos[n].x<<","<<pos[n].y<<","<<pos[n].z<<"\n";
+        file<<pos[n].x<<","<<pos[n].y<<","<<pos[n].z;//<<"\n";
+        get_nns(n,pos,pos_c,&file);
     }
+
+    auto end = chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     file.close();
-    std::cout << "CSV saved to " << filename << std::endl;
+    std::cout << "CSV saved to " << filename <<" in "<<std::chrono::duration_cast<std::chrono::milliseconds>(duration).count()<<" ms\n";
+
 }
 
 
@@ -230,7 +255,7 @@ int main(/*int argc=0, char** argv=nullptr*/){
     srand((unsigned) time(NULL));
 
     //ncell=10;
-    Lbox=180;
+    Lbox=30;
     cell_w=3;
     ncell=(2*Lbox)/cell_w;
     max_z_cell=(uint8_t)ncell-1;
@@ -338,7 +363,18 @@ int main(/*int argc=0, char** argv=nullptr*/){
         }
         iter++;
     }
+    /*for(uint8_t z0=0; z0<=max_z_cell; z0++){
+        for(uint8_t x0=0;x0<num_cells;x0++){
+            for(uint8_t y0=0; y0<num_cells; y0++){
+                cout<<"("<<unsigned(x0)<<","<<unsigned(y0)<<","<<unsigned(z0)<<"): ";
+                for(uint32_t i:cells[x0][y0][z0]){
+                    cout<<i<<", ";
+                }
+                cout<<"\n";
+            }
+        }
 
+    }*/
     string name="output2_N"+to_string(Np)+"_w"+to_string(Lbox)+".csv";
     save_as_csv(pos, pos_c,name);
     /*for(int i=0; i<Np;i++){
