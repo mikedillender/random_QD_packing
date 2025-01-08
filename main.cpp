@@ -20,6 +20,10 @@ int cell_w;
 uint8_t max_z_cell;
 vector<vector<vector<vector<uint32_t>>>> cells;
 
+uint16_t d_size;
+uint32_t *distances;
+double d_res;
+
 struct vec3{
     vec3(){ x=0;y=0;z=0;}
     vec3(double x, double y, double z): x{x}, y{y}, z{z}{}
@@ -137,7 +141,7 @@ void set_init(vec3 pos[],cell_pos pos_c[]){
 }
 
 double LJ_eps = .1;
-double LJ_sig = 1.8;
+double LJ_sig = 2;
 double max_force=2000;
 bool too_close=false;
 vec3 get_force(vec3 a, vec3 b){
@@ -193,6 +197,7 @@ void force_self(uint8_t x,uint8_t y,uint8_t z, vec3 forces[], vec3 pos[], cell_p
     }
 }
 
+
 void get_nns(uint32_t i, const vec3 pos[], const cell_pos pos_c[], ofstream *file){
     uint8_t cx0=pos_c[i].x;
     uint8_t cy0=pos_c[i].y;
@@ -201,13 +206,19 @@ void get_nns(uint32_t i, const vec3 pos[], const cell_pos pos_c[], ofstream *fil
     uint8_t cy_max=(cy0+1==ncell)?cy0:cy0+1;
     uint8_t cz_max=(cz0+1==ncell)?cz0:cz0+1;
     vector<pos_r> closest;
-    //cout<<i<<": ";
-    for(uint8_t cx=(0<cx0)?cx0-1:cx0; cx<cx_max; cx++){
-        for(uint8_t cy=(0<cy0)?cy0-1:cy0; cy<cy_max; cy++) {
-            for(uint8_t cz=(0<cz0)?cz0-1:cz0; cz<cz_max; cz++) {
+    for(uint8_t cx=(0<cx0)?cx0-1:cx0; cx<=cx_max; cx++){
+        for(uint8_t cy=(0<cy0)?cy0-1:cy0; cy<=cy_max; cy++) {
+            for(uint8_t cz=(0<cz0)?cz0-1:cz0; cz<=cz_max; cz++) {
                 for (uint32_t j:cells[cx][cy][cz]){
                     if(j==i){continue;}
                     double r_mag = pos[i].distance2(pos[j]);
+                    if(r_mag<16){
+                        uint16_t r_in=(uint16_t)(sqrt(r_mag)/d_res);
+                        //cout<<r_in<<"/"<<d_size<<" ";
+                        if(r_in<d_size){
+                            distances[r_in]++;
+                        }
+                    }
                     pos_r pr=pos_r(j,r_mag);
 
                     auto it = std::lower_bound(closest.begin(),closest.end(), pr);
@@ -219,15 +230,27 @@ void get_nns(uint32_t i, const vec3 pos[], const cell_pos pos_c[], ofstream *fil
             }
         }
     }
+    //cout<<i<<": ";
     //cout<<"["<<closest.size()<<"] ";
+    int num=0;
     for(uint32_t k=0; k<min(closest.size(),size_t(12));k++){
-        if(closest[k].r>10){break;}
-        //cout<<closest[k].i<<" ("<<closest[k].r<<"), ";
+        //if(closest[k].r>8){break;}
+        //if(k<4)
+        //    cout<<closest[k].i<<" ("<<closest[k].r<<"), ";
+
         *file<<","<<closest[k].i;
+        num++;
     }
+    //cout<<"\n";
+    if(num!=12){
+        cout<<"\nERROR, not 12 NNS, instead there are "<<num<<"\n";
+    }
+    //cout<<num<<" ";
+
     //cout<<"\n";
     *file<<"\n";
 }
+
 
 void save_as_csv(const vec3 pos[], const cell_pos pos_c[], const std::string& filename) {
     auto start = chrono::high_resolution_clock::now();
@@ -237,11 +260,12 @@ void save_as_csv(const vec3 pos[], const cell_pos pos_c[], const std::string& fi
         std::cerr << "Error: Could not open file " << filename << " for writing!" << std::endl;
         return;
     }
-    vector<uint32_t> closest;
     for (uint32_t n=0;n<Np;n++) {
         file<<pos[n].x<<","<<pos[n].y<<","<<pos[n].z;//<<"\n";
         get_nns(n,pos,pos_c,&file);
     }
+
+
 
     auto end = chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
@@ -250,17 +274,36 @@ void save_as_csv(const vec3 pos[], const cell_pos pos_c[], const std::string& fi
 
 }
 
+void save_dist_plot(const std::string& filename) {
+
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << " for writing!" << std::endl;
+        return;
+    }
+    for (uint16_t d=0;d<d_size;d++) {
+        file<<(d_res*d)<<","<<distances[d]<<"\n";
+    }
+
+    file.close();
+
+}
+
 
 int main(/*int argc=0, char** argv=nullptr*/){
     srand((unsigned) time(NULL));
 
-    //ncell=10;
-    Lbox=30;
+    d_res=.003;
+    Lbox=32;
     cell_w=3;
     ncell=(2*Lbox)/cell_w;
     max_z_cell=(uint8_t)ncell-1;
     cells = vector<vector<vector<vector<uint32_t>>>>(ncell,vector<vector<vector<uint32_t>>>(ncell,vector<vector<uint32_t>>(ncell,vector<uint32_t>())));
     Np = (int)(Lbox * Lbox * 3.2);
+    d_size=(uint16_t)ceil(4/d_res);
+    distances=new uint32_t[d_size];
+    fill_n(distances,d_size,0);
+    //cout<<"distances low: "<<distances[0]<<", "<<distances[1]<<", "<<distances[2]<<", "<<distances[3]<<"\n";
 
     vec3 *pos = new vec3[Np];
     cell_pos *pos_c = new cell_pos[Np];
@@ -339,18 +382,18 @@ int main(/*int argc=0, char** argv=nullptr*/){
                 vel[i].z = -.8 * vel[i].z;
             }
             pos_c[i].update(pos[i],i);
-            vel[i].scale(.9);
+            vel[i].scale(.7);
             forces[i].resetZ(2);
             avg_z+=pos[i].z;
         }
-        if(iter%30==0){
+        if(iter%20==0){
             auto end = chrono::high_resolution_clock::now();
             avg_E=avg_E/Np;; avg_z=avg_z/Np+Lbox;
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
             cout<<iter<<": avg z = "<<avg_z<<", E = "<<avg_E;
             if(iter>50){
                 cout<<" ("<<round(100*(avg_E/last_E))<<"%)";
-                if (avg_E/last_E>.98 && avg_E/last_E<1 && last_az-avg_z<.1){
+                if (avg_E/last_E>.98 && avg_E/last_E<1.1 && last_az-avg_z<.01){
                     dt=dt/2;
                     if(avg_E<.0001){
                         iter=5000;
@@ -375,8 +418,15 @@ int main(/*int argc=0, char** argv=nullptr*/){
         }
 
     }*/
-    string name="output2_N"+to_string(Np)+"_w"+to_string(Lbox)+".csv";
+    //cout<<"distances low: "<<distances[0]<<", "<<distances[1]<<", "<<distances[2]<<", "<<distances[3]<<"\n";
+    string name="dots2_N"+to_string(Np)+"_w"+to_string(Lbox)+".csv";
     save_as_csv(pos, pos_c,name);
+
+    /*for(uint16_t d=0; d<d_size; d++){
+        cout<<d<<"-"<<distances[d]<<" | ";
+    }*/
+    string dists="distances2_N"+to_string(Np)+"_w"+to_string(Lbox)+".csv";
+    save_dist_plot(dists);
     /*for(int i=0; i<Np;i++){
         pos[i].print();
         cout<<"\n";
@@ -387,6 +437,7 @@ int main(/*int argc=0, char** argv=nullptr*/){
     //double forces[Np][3];
 
 
+    delete [] distances;
     delete [] pos;
     delete [] pos_c;
     delete [] vel;
