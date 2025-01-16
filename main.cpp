@@ -16,6 +16,7 @@ int Np;
 int Lbox; // width
 
 int ncell;
+uint8_t num_cells;
 int cell_w;
 uint8_t max_z_cell;
 vector<vector<vector<vector<uint32_t>>>> cells;
@@ -144,8 +145,13 @@ double LJ_eps = .1;
 double LJ_sig = 2;
 double max_force=2000;
 bool too_close=false;
-vec3 get_force(vec3 a, vec3 b){
+vec3 get_force(vec3 a, vec3 b, bool offset=false, double xa_off=0, double ya_off=0){
     vec3 r_v = b - a;
+    if(offset){
+        r_v.x-=xa_off;
+        r_v.y-=ya_off;
+        //cout<<"offset = "<<xa_off<<", "<<ya_off<<"\n";
+    }
     double r_mag = sqrt(r_v.x*r_v.x+r_v.y*r_v.y+r_v.z*r_v.z);
     if(r_mag==0){
         a.print();cout<<" is for some reason applying force to itself\n";
@@ -163,7 +169,46 @@ vec3 get_force(vec3 a, vec3 b){
 
 }
 
+void force_boundary(uint8_t x0,uint8_t y0,uint8_t z0,uint8_t x1,uint8_t y1,uint8_t z1, vec3 forces[], vec3 pos[], cell_pos cpos[]){
+    double x0_offset=0;
+    double y0_offset=0;
+    if(x0==0 && x1+1==num_cells){
+        x0_offset=2*Lbox;
+    }else if(x0+1==num_cells && x1==0){
+        x0_offset=-2*Lbox;
+    }
+    if(y0==0 && y1+1==num_cells){
+        y0_offset=2*Lbox;
+    }else if(y0+1==num_cells && y1==0){
+        y0_offset=-2*Lbox;
+    }
+    for (auto & i : cells[x0][y0][z0]){
+        for (auto & j : cells[x1][y1][z1]){
+            vec3 force= get_force(pos[i], pos[j], true,x0_offset,y0_offset);
+            forces[i].subtract(force);
+            forces[j].add(force);
+            if(too_close){
+                cout<<i<<"-"<<j<<" ";cpos[i].print();cout<<" - ";cpos[j].print();cout<<" \n";
+                cout<<i<<"-"<<j<<" ("<<unsigned(x0)<<","<<unsigned(y0)<<","<<unsigned(z0)<<") - ("<<unsigned(x1)<<","<<unsigned(y1)<<","<<unsigned(z1)<<"), boundary \n";
+                too_close= false;
+            }
+        }
+    }
+
+}
+
 void force_cells(uint8_t x0,uint8_t y0,uint8_t z0,uint8_t x1,uint8_t y1,uint8_t z1, vec3 forces[], vec3 pos[], cell_pos cpos[]){
+    if(x1>num_cells-1||y1>num_cells-1){
+        if(x1>num_cells-1){
+            x1=(x1==num_cells)?0:num_cells-1;
+        }
+        if(y1>num_cells-1){
+            y1=(y1==num_cells)?0:num_cells-1;
+        }
+        //cout<<"boundary from "<<unsigned(x0)<<","<<unsigned(y0)<<","<<unsigned(z0)<<" to "<<unsigned(x1)<<","<<unsigned(y1)<<","<<unsigned(z0)<<"\n";
+        force_boundary(x0,y0,z0,x1,y1,z1,forces,pos,cpos);
+        return;
+    }
     for (auto & i : cells[x0][y0][z0]){
         for (auto & j : cells[x1][y1][z1]){
             vec3 force= get_force(pos[i], pos[j]);
@@ -171,7 +216,7 @@ void force_cells(uint8_t x0,uint8_t y0,uint8_t z0,uint8_t x1,uint8_t y1,uint8_t 
             forces[j].add(force);
             if(too_close){
                 cout<<i<<"-"<<j<<" (";cpos[i].print();cout<<") - (";cpos[j].print();cout<<") \n";
-                cout<<i<<"-"<<j<<" ("<<x0<<","<<y0<<","<<z0<<") - ("<<x1<<","<<y1<<","<<z1<<") \n";
+                cout<<i<<"-"<<j<<" ("<<unsigned(x0)<<","<<unsigned(y0)<<","<<unsigned(z0)<<") - ("<<unsigned(x1)<<","<<unsigned(y1)<<","<<unsigned(z1)<<") \n";
                 too_close= false;
             }
         }
@@ -179,7 +224,7 @@ void force_cells(uint8_t x0,uint8_t y0,uint8_t z0,uint8_t x1,uint8_t y1,uint8_t 
 }
 
 void force_self(uint8_t x,uint8_t y,uint8_t z, vec3 forces[], vec3 pos[], cell_pos cpos[]) {
-    uint8_t sz=cells[x][y][z].size();
+    uint8_t sz=uint8_t(cells[x][y][z].size());
     for (uint8_t i=0; i<sz; i++) {
         uint32_t i_i=cells[x][y][z][i];
         for(uint8_t j=i+1;j<sz;j++){
@@ -260,7 +305,7 @@ void save_as_csv(const vec3 pos[], const cell_pos pos_c[], const std::string& fi
         std::cerr << "Error: Could not open file " << filename << " for writing!" << std::endl;
         return;
     }
-    for (uint32_t n=0;n<Np;n++) {
+    for (int n=0;n<Np;n++) {
         file<<pos[n].x<<","<<pos[n].y<<","<<pos[n].z;//<<"\n";
         get_nns(n,pos,pos_c,&file);
     }
@@ -314,7 +359,7 @@ int main(/*int argc=0, char** argv=nullptr*/){
     int iter=0;
     double dt=.05;
     double avg_E=1000;
-    uint8_t num_cells=(uint8_t)ncell;
+    num_cells=(uint8_t)ncell;
     auto start = chrono::high_resolution_clock::now();
     double last_E=1;
     double last_az=1;
@@ -331,9 +376,9 @@ int main(/*int argc=0, char** argv=nullptr*/){
         uint8_t highest_z=0;
         for(uint8_t z0=0; z0<=max_z_cell; z0++){
             for(uint8_t x0=0;x0<num_cells;x0++){
-                uint8_t x1_max=(x0==num_cells-1)?x0:x0+1;
+                //uint8_t x1_max=(x0==num_cells-1)?x0:x0+1;
                 for(uint8_t y0=0; y0<num_cells; y0++){
-                    uint8_t y1_max=(y0==num_cells-1)?y0:y0+1;
+                    //uint8_t y1_max=(y0==num_cells-1)?y0:y0+1;
                     if(cells[x0][y0][z0].empty()){continue;}
                     if(z0>highest_z){
                         highest_z=z0;
@@ -341,12 +386,44 @@ int main(/*int argc=0, char** argv=nullptr*/){
                     if(cells[x0][y0][z0].size()>1){
                         force_self(x0,y0,z0,forces,pos,pos_c);
                     }
-                    if(x0+1<num_cells){
+                    force_cells(x0,y0,z0,x0+1,y0,z0,forces,pos,pos_c);
+                    uint8_t x1=x0-1;
+                    for(int x1o=-1; x1o<=1; x1o++) {
+                        force_cells(x0,y0,z0,x1,y0+1,z0,forces,pos,pos_c);
+                        x1++;
+                    }
+                    if(z0+1<=max_z_cell){
+                        uint8_t y1=y0-1;
+                        for(int y1o=-1; y1o<=1; y1o++) {
+                            x1=x0-1;
+                            for(int x1o=0; x1o<=2; x1o++) {
+                                force_cells(x0,y0,z0,x1,y1,z0+1,forces,pos,pos_c);
+                                x1++;
+                            }
+                            y1++;
+                            /*for(uint8_t x1o=(x0==0)?0:x0-1; x1<=y0+1; x1++) {
+                                force_cells(x0,y0,z0,x1,y1,z0+1,forces,pos,pos_c);
+                            }*/
+                        }
+                    }
+                    /*if(x0+1<num_cells){
                         force_cells(x0,y0,z0,x0+1,y0,z0,forces,pos,pos_c);
+                    } else{
+                        force_boundary(num_cells-1,y0,z0,0,y0,z0,forces,pos,pos_c);
                     }
                     if(y0+1<num_cells){
                         for(uint8_t x1=(x0==0)?0:x0-1; x1<=x1_max; x1++) {
                             force_cells(x0,y0,z0,x1,y0+1,z0,forces,pos,pos_c);
+                        }
+                    } else{
+                        if(x0==0){ // x0 at left border
+                            force_boundary(0,num_cells-1,z0,num_cells-1,0,z0,forces,pos,pos_c);
+                        }else if(x0+1==num_cells){//x0 at right border
+                            force_boundary(num_cells-1,num_cells-1,z0,0,0,z0,forces,pos,pos_c);
+
+                        }
+                        for(uint8_t x1=(x0==0)?0:x0-1; x1<=x1_max; x1++) {
+                            force_boundary(x0,num_cells-1,z0,x1,0,z0,forces,pos,pos_c);
                         }
                     }
                     if(z0+1<=max_z_cell){
@@ -355,7 +432,7 @@ int main(/*int argc=0, char** argv=nullptr*/){
                                 force_cells(x0,y0,z0,x1,y1,z0+1,forces,pos,pos_c);
                             }
                         }
-                    }
+                    }*/
                     //highest_z=z0;
                 }
             }
@@ -363,19 +440,42 @@ int main(/*int argc=0, char** argv=nullptr*/){
         }
         max_z_cell=(uint8_t)highest_z;
         double avg_z=0;
+        //double E_i=0;
         for(int i=0; i<Np;i++){
             forces[i].scale(dt);
             vel[i].add(forces[i]);
             pos[i].add_scaled(vel[i],dt);
+            //E_i=vel[i].x*vel[i].x+vel[i].y*vel[i].y+vel[i].z*vel[i].z;
             avg_E+=vel[i].x*vel[i].x+vel[i].y*vel[i].y+vel[i].z*vel[i].z;
-            if(abs(pos[i].x) >= Lbox - 1) {
-                pos[i].x-=vel[i].x*dt;
+            /*if(sqrt(E_i)*dt>.5){
+                cout<<i<<" is moving with vel "<<sqrt(E_i)*dt<<" - TOO FAST\n";
+            }*/
+            if(abs(pos[i].x) >= Lbox) {
+                if(pos[i].x>Lbox){
+                    pos[i].x-=Lbox*2;
+                    //cout<<"moved "<<i<<" x down 2L\n";
+
+                } else{
+                    pos[i].x+=Lbox*2;
+                    //cout<<"moved "<<i<<" x up 2L\n";
+
+                }
+                //pos[i].x-=Lbox;
+                //pos[i].x-=vel[i].x*dt;
                 //pos[i].x = (pos[i].x<0) ? -Lbox+1 : Lbox-1;
-                vel[i].x = -.8 * vel[i].x;
-            } if(abs(pos[i].y) >= Lbox - 1) {
-                pos[i].y-=vel[i].y*dt;
+                //vel[i].x = -.8 * vel[i].x;
+            } if(abs(pos[i].y) >= Lbox ) {
+                if(pos[i].y>Lbox){
+                    pos[i].y-=Lbox*2;
+                    //cout<<"moved "<<i<<" y down 2L\n";
+                } else{
+                    pos[i].y+=Lbox*2;
+                    //cout<<"moved "<<i<<" y up 2L\n";
+                }
+
+                //pos[i].y-=vel[i].y*dt;
                 //pos[i].y = (pos[i].y<0) ? -Lbox+1 : Lbox-1;
-                vel[i].y = -.8 * vel[i].y;
+                //vel[i].y = -.8 * vel[i].y;
             } if(abs(pos[i].z) >= Lbox - 1) {
                 pos[i].z-=vel[i].z*dt;
                 //pos[i].z = (pos[i].z<0) ? -Lbox+1 : Lbox-1;
@@ -419,13 +519,13 @@ int main(/*int argc=0, char** argv=nullptr*/){
 
     }*/
     //cout<<"distances low: "<<distances[0]<<", "<<distances[1]<<", "<<distances[2]<<", "<<distances[3]<<"\n";
-    string name="dots2_N"+to_string(Np)+"_w"+to_string(Lbox)+".csv";
+    string name="dots_p_N"+to_string(Np)+"_w"+to_string(Lbox)+".csv";
     save_as_csv(pos, pos_c,name);
 
     /*for(uint16_t d=0; d<d_size; d++){
         cout<<d<<"-"<<distances[d]<<" | ";
     }*/
-    string dists="distances2_N"+to_string(Np)+"_w"+to_string(Lbox)+"_95_1g.csv";
+    string dists="distances_p_N"+to_string(Np)+"_w"+to_string(Lbox)+"_95_1g.csv";
     save_dist_plot(dists);
     /*for(int i=0; i<Np;i++){
         pos[i].print();
