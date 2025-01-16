@@ -158,7 +158,7 @@ vec3 get_force(vec3 a, vec3 b, bool offset=false, double xa_off=0, double ya_off
         too_close= true;
         return {0,0,0};
     }
-    double f = - 24 * LJ_eps * (pow((LJ_sig / r_mag),8)) * (1 - 2 * pow(LJ_sig / r_mag,6)) / (LJ_sig*LJ_sig);
+    double f = - 24 * LJ_eps * (pow((LJ_sig / r_mag),7)) * (1 - 2 * pow(LJ_sig / r_mag,6)) / (LJ_sig);
     if(r_mag<1.5){
         a.print();cout<<" and ";b.print();cout<<" have r = "<<r_mag<<", f = "<<f<<"\n";
         too_close= true;
@@ -453,32 +453,18 @@ int main(/*int argc=0, char** argv=nullptr*/){
             if(abs(pos[i].x) >= Lbox) {
                 if(pos[i].x>Lbox){
                     pos[i].x-=Lbox*2;
-                    //cout<<"moved "<<i<<" x down 2L\n";
-
                 } else{
                     pos[i].x+=Lbox*2;
-                    //cout<<"moved "<<i<<" x up 2L\n";
 
                 }
-                //pos[i].x-=Lbox;
-                //pos[i].x-=vel[i].x*dt;
-                //pos[i].x = (pos[i].x<0) ? -Lbox+1 : Lbox-1;
-                //vel[i].x = -.8 * vel[i].x;
             } if(abs(pos[i].y) >= Lbox ) {
                 if(pos[i].y>Lbox){
                     pos[i].y-=Lbox*2;
-                    //cout<<"moved "<<i<<" y down 2L\n";
                 } else{
                     pos[i].y+=Lbox*2;
-                    //cout<<"moved "<<i<<" y up 2L\n";
                 }
-
-                //pos[i].y-=vel[i].y*dt;
-                //pos[i].y = (pos[i].y<0) ? -Lbox+1 : Lbox-1;
-                //vel[i].y = -.8 * vel[i].y;
             } if(abs(pos[i].z) >= Lbox - 1) {
                 pos[i].z-=vel[i].z*dt;
-                //pos[i].z = (pos[i].z<0) ? -Lbox+1 : Lbox-1;
                 vel[i].z = -.8 * vel[i].z;
             }
             pos_c[i].update(pos[i],i);
@@ -519,13 +505,13 @@ int main(/*int argc=0, char** argv=nullptr*/){
 
     }*/
     //cout<<"distances low: "<<distances[0]<<", "<<distances[1]<<", "<<distances[2]<<", "<<distances[3]<<"\n";
-    string name="dots_p_N"+to_string(Np)+"_w"+to_string(Lbox)+".csv";
+    string name="dots_p5_N"+to_string(Np)+"_w"+to_string(Lbox)+".csv";
     save_as_csv(pos, pos_c,name);
 
     /*for(uint16_t d=0; d<d_size; d++){
         cout<<d<<"-"<<distances[d]<<" | ";
     }*/
-    string dists="distances_p_N"+to_string(Np)+"_w"+to_string(Lbox)+"_95_1g.csv";
+    string dists="distances_pf_N"+to_string(Np)+"_w"+to_string(Lbox)+"_95_1g.csv";
     save_dist_plot(dists);
     /*for(int i=0; i<Np;i++){
         pos[i].print();
