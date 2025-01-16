@@ -294,7 +294,7 @@ int main(/*int argc=0, char** argv=nullptr*/){
     srand((unsigned) time(NULL));
 
     d_res=.003;
-    Lbox=32;
+    Lbox=210;
     cell_w=3;
     ncell=(2*Lbox)/cell_w;
     max_z_cell=(uint8_t)ncell-1;
@@ -382,8 +382,8 @@ int main(/*int argc=0, char** argv=nullptr*/){
                 vel[i].z = -.8 * vel[i].z;
             }
             pos_c[i].update(pos[i],i);
-            vel[i].scale(.7);
-            forces[i].resetZ(2);
+            vel[i].scale(.95);
+            forces[i].resetZ(1);
             avg_z+=pos[i].z;
         }
         if(iter%20==0){
@@ -425,7 +425,7 @@ int main(/*int argc=0, char** argv=nullptr*/){
     /*for(uint16_t d=0; d<d_size; d++){
         cout<<d<<"-"<<distances[d]<<" | ";
     }*/
-    string dists="distances2_N"+to_string(Np)+"_w"+to_string(Lbox)+".csv";
+    string dists="distances2_N"+to_string(Np)+"_w"+to_string(Lbox)+"_95_1g.csv";
     save_dist_plot(dists);
     /*for(int i=0; i<Np;i++){
         pos[i].print();
