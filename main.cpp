@@ -22,8 +22,12 @@ uint8_t max_z_cell;
 vector<vector<vector<vector<uint32_t>>>> cells;
 
 uint16_t d_size;
+uint16_t zh_size;
 uint32_t *distances;
+uint32_t *z_hist;
 double d_res;
+double z_res;
+
 
 struct vec3{
     vec3(){ x=0;y=0;z=0;}
@@ -42,7 +46,13 @@ struct vec3{
     void add_scaled(const vec3& p1, double k){ x+= k * p1.x; y+= k * p1.y; z+= k * p1.z;};
     void subtract(const vec3& p1){ x-=p1.x; y-=p1.y; z-=p1.z;};
     double distance2(const vec3& p1) const { return (x - p1.x) * (x - p1.x) + (y - p1.y) * (y - p1.y) + (z - p1.z) * (z - p1.z);};
-    void resetZ(double grav){x=0;y=0;z=-grav;}
+    double sig_g=pow(2,-1/6.0);
+    void resetZ(double grav,double pz=0){
+        x=0;y=0;
+        z = grav*(24 * (pow((sig_g/ pz),7)) * (2 * pow(sig_g / pz,6) - 1) - 1);
+
+        //z=-grav;
+    }
     vec3 operator+(vec3 const& obj){
         vec3 res(x + obj.x, y + obj.y, z + obj.z);
         return res;
@@ -114,9 +124,9 @@ struct cell_pos{
 // when calculating forces for particles, only run calculation if i_this < i_connected
 void set_init(vec3 pos[],cell_pos pos_c[]){
     double x1= -Lbox;
-    int y1= -Lbox;
-    int z1= -Lbox;
-    int step=3;
+    double y1= -Lbox;
+    double z1= -Lbox;
+    double step=2.5;
     for(int i=0; i<Np;i++){
         pos[i].x = x1+1+(step-2)*((rand()%1000)/1000.0);
         pos[i].y = y1+1+(step-2)*((rand()%1000)/1000.0);
@@ -141,8 +151,8 @@ void set_init(vec3 pos[],cell_pos pos_c[]){
     }
 }
 
-double LJ_eps = .1;
-double LJ_sig = 2;
+double LJ_eps = .3;
+double LJ_sig = 1.8;
 double max_force=2000;
 bool too_close=false;
 vec3 get_force(vec3 a, vec3 b, bool offset=false, double xa_off=0, double ya_off=0){
@@ -158,7 +168,7 @@ vec3 get_force(vec3 a, vec3 b, bool offset=false, double xa_off=0, double ya_off
         too_close= true;
         return {0,0,0};
     }
-    double f = - 24 * LJ_eps * (pow((LJ_sig / r_mag),7)) * (1 - 2 * pow(LJ_sig / r_mag,6)) / (LJ_sig);
+    double f = - 24 * LJ_eps * (pow((LJ_sig / r_mag),7)) * (1 - 2 * pow(LJ_sig / r_mag,6));
     if(r_mag<1.5){
         a.print();cout<<" and ";b.print();cout<<" have r = "<<r_mag<<", f = "<<f<<"\n";
         too_close= true;
@@ -256,6 +266,10 @@ void get_nns(uint32_t i, const vec3 pos[], const cell_pos pos_c[], ofstream *fil
             for(uint8_t cz=(0<cz0)?cz0-1:cz0; cz<=cz_max; cz++) {
                 for (uint32_t j:cells[cx][cy][cz]){
                     if(j==i){continue;}
+                    uint16_t z_in=uint16_t(round((pos[i].z+Lbox)/z_res));
+                    if(z_in<zh_size){
+                        z_hist[z_in]++;
+                    }
                     double r_mag = pos[i].distance2(pos[j]);
                     if(r_mag<16){
                         uint16_t r_in=(uint16_t)(sqrt(r_mag)/d_res);
@@ -287,9 +301,9 @@ void get_nns(uint32_t i, const vec3 pos[], const cell_pos pos_c[], ofstream *fil
         num++;
     }
     //cout<<"\n";
-    if(num!=12){
+    /*if(num!=12){
         cout<<"\nERROR, not 12 NNS, instead there are "<<num<<"\n";
-    }
+    }*/
     //cout<<num<<" ";
 
     //cout<<"\n";
@@ -326,8 +340,19 @@ void save_dist_plot(const std::string& filename) {
         std::cerr << "Error: Could not open file " << filename << " for writing!" << std::endl;
         return;
     }
-    for (uint16_t d=0;d<d_size;d++) {
-        file<<(d_res*d)<<","<<distances[d]<<"\n";
+    uint16_t imax=max(d_size,zh_size);
+    for (uint16_t d=0;d<imax;d++) {
+        if(d<d_size){
+            file<<(d_res*d)<<","<<distances[d];
+        } else{
+            file<<" , ";
+        }
+        if(d<zh_size){
+            file<<","<<(z_res*d)<<","<<z_hist[d];
+        } else{
+            file<<", , ";
+        }
+        file<<"\n";
     }
 
     file.close();
@@ -336,18 +361,26 @@ void save_dist_plot(const std::string& filename) {
 
 
 int main(/*int argc=0, char** argv=nullptr*/){
+    //std::ios_base::sync_with_stdio(false);
     srand((unsigned) time(NULL));
+    double grav=0.2; double cooling =.999;
 
     d_res=.003;
-    Lbox=210;
+    z_res=.25;
+    Lbox=90;
     cell_w=3;
     ncell=(2*Lbox)/cell_w;
     max_z_cell=(uint8_t)ncell-1;
     cells = vector<vector<vector<vector<uint32_t>>>>(ncell,vector<vector<vector<uint32_t>>>(ncell,vector<vector<uint32_t>>(ncell,vector<uint32_t>())));
-    Np = (int)(Lbox * Lbox * 3.2);
+    Np = (int)(Lbox * Lbox * 2.4);
+
     d_size=(uint16_t)ceil(4/d_res);
+    zh_size=(uint16_t)ceil(10/z_res);
+
     distances=new uint32_t[d_size];
+    z_hist=new uint32_t[zh_size];
     fill_n(distances,d_size,0);
+    fill_n(z_hist,zh_size,0);
     //cout<<"distances low: "<<distances[0]<<", "<<distances[1]<<", "<<distances[2]<<", "<<distances[3]<<"\n";
 
     vec3 *pos = new vec3[Np];
@@ -358,13 +391,15 @@ int main(/*int argc=0, char** argv=nullptr*/){
     //double total_dx=100;
     int iter=0;
     double dt=.05;
-    double avg_E=1000;
+    double avg_T=1000;
     num_cells=(uint8_t)ncell;
     auto start = chrono::high_resolution_clock::now();
     double last_E=1;
     double last_az=1;
+    double avg_z=0;
+
+
     while(iter<5000){
-        avg_E=0;
         /*for(int i=0; i<Np;i++){
             for(int j=i+1; j<Np;j++){
                 vec3 force= get_force(pos[i], pos[j]);
@@ -374,6 +409,7 @@ int main(/*int argc=0, char** argv=nullptr*/){
             //cout<<"particle ";pos[i].print();cout<<" has force ";forces[i].print();cout<<"\n";
         }*/
         uint8_t highest_z=0;
+
         for(uint8_t z0=0; z0<=max_z_cell; z0++){
             for(uint8_t x0=0;x0<num_cells;x0++){
                 //uint8_t x1_max=(x0==num_cells-1)?x0:x0+1;
@@ -401,52 +437,22 @@ int main(/*int argc=0, char** argv=nullptr*/){
                                 x1++;
                             }
                             y1++;
-                            /*for(uint8_t x1o=(x0==0)?0:x0-1; x1<=y0+1; x1++) {
-                                force_cells(x0,y0,z0,x1,y1,z0+1,forces,pos,pos_c);
-                            }*/
                         }
                     }
-                    /*if(x0+1<num_cells){
-                        force_cells(x0,y0,z0,x0+1,y0,z0,forces,pos,pos_c);
-                    } else{
-                        force_boundary(num_cells-1,y0,z0,0,y0,z0,forces,pos,pos_c);
-                    }
-                    if(y0+1<num_cells){
-                        for(uint8_t x1=(x0==0)?0:x0-1; x1<=x1_max; x1++) {
-                            force_cells(x0,y0,z0,x1,y0+1,z0,forces,pos,pos_c);
-                        }
-                    } else{
-                        if(x0==0){ // x0 at left border
-                            force_boundary(0,num_cells-1,z0,num_cells-1,0,z0,forces,pos,pos_c);
-                        }else if(x0+1==num_cells){//x0 at right border
-                            force_boundary(num_cells-1,num_cells-1,z0,0,0,z0,forces,pos,pos_c);
-
-                        }
-                        for(uint8_t x1=(x0==0)?0:x0-1; x1<=x1_max; x1++) {
-                            force_boundary(x0,num_cells-1,z0,x1,0,z0,forces,pos,pos_c);
-                        }
-                    }
-                    if(z0+1<=max_z_cell){
-                        for(uint8_t y1=(y0==0)?0:y0-1; y1<=y1_max; y1++) {
-                            for(uint8_t x1=(x0==0)?0:x0-1; x1<=x1_max; x1++) {
-                                force_cells(x0,y0,z0,x1,y1,z0+1,forces,pos,pos_c);
-                            }
-                        }
-                    }*/
-                    //highest_z=z0;
                 }
             }
 
         }
         max_z_cell=(uint8_t)highest_z;
-        double avg_z=0;
+        avg_z=0;
+        avg_T=0;
         //double E_i=0;
         for(int i=0; i<Np;i++){
             forces[i].scale(dt);
             vel[i].add(forces[i]);
             pos[i].add_scaled(vel[i],dt);
             //E_i=vel[i].x*vel[i].x+vel[i].y*vel[i].y+vel[i].z*vel[i].z;
-            avg_E+=vel[i].x*vel[i].x+vel[i].y*vel[i].y+vel[i].z*vel[i].z;
+            avg_T+=(vel[i].x*vel[i].x+vel[i].y*vel[i].y+vel[i].z*vel[i].z);
             /*if(sqrt(E_i)*dt>.5){
                 cout<<i<<" is moving with vel "<<sqrt(E_i)*dt<<" - TOO FAST\n";
             }*/
@@ -455,7 +461,6 @@ int main(/*int argc=0, char** argv=nullptr*/){
                     pos[i].x-=Lbox*2;
                 } else{
                     pos[i].x+=Lbox*2;
-
                 }
             } if(abs(pos[i].y) >= Lbox ) {
                 if(pos[i].y>Lbox){
@@ -463,32 +468,33 @@ int main(/*int argc=0, char** argv=nullptr*/){
                 } else{
                     pos[i].y+=Lbox*2;
                 }
-            } if(abs(pos[i].z) >= Lbox - 1) {
+            } if(abs(pos[i].z) >= Lbox - .5) {
+                cout<<"dangerously close\n";
                 pos[i].z-=vel[i].z*dt;
                 vel[i].z = -.8 * vel[i].z;
             }
             pos_c[i].update(pos[i],i);
-            vel[i].scale(.95);
-            forces[i].resetZ(1);
+            vel[i].scale(cooling);
+            forces[i].resetZ(grav,pos[i].z+Lbox);
             avg_z+=pos[i].z;
         }
         if(iter%20==0){
             auto end = chrono::high_resolution_clock::now();
-            avg_E=avg_E/Np;; avg_z=avg_z/Np+Lbox;
+            avg_T=avg_T/Np;; avg_z=avg_z/Np+Lbox;
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-            cout<<iter<<": avg z = "<<avg_z<<", E = "<<avg_E;
+            cout<<iter<<": avg z = "<<avg_z<<", T = "<<avg_T;
             if(iter>50){
-                cout<<" ("<<round(100*(avg_E/last_E))<<"%)";
-                if (avg_E/last_E>.98 && avg_E/last_E<1.1 && last_az-avg_z<.01){
+                cout<<" ("<<round(100*(avg_T/last_E))<<"%)";
+                if (avg_T/last_E>.99 && avg_T/last_E<1. && last_az-avg_z<.001){
                     dt=dt/2;
-                    if(avg_E<.0001){
+                    if(avg_T<.0001 && last_az-avg_z<.0001){
                         iter=5000;
                     }
                 }
             }
             cout<<", highest z = "<<unsigned(max_z_cell)<<", dt = "<<dt;
             cout<<", ("<<std::chrono::duration_cast<std::chrono::milliseconds>(duration).count()<<" ms)\n";
-            start=end; last_E=avg_E; last_az=avg_z;
+            start=end; last_E=avg_T; last_az=avg_z;
         }
         iter++;
     }
@@ -504,14 +510,17 @@ int main(/*int argc=0, char** argv=nullptr*/){
         }
 
     }*/
+    int z_avg=(int)round(1000*(avg_z));
+    int density=(int)(1000*(4.19*Np/(4*Lbox*Lbox*(avg_z+1))));
+    string name1="z"+to_string(z_avg)+"_p"+to_string(density)+"_w"+to_string(Lbox)+"_g"+to_string(int(round(10*grav)))+"_c"+to_string(int(round(1000*cooling)))+".csv";
     //cout<<"distances low: "<<distances[0]<<", "<<distances[1]<<", "<<distances[2]<<", "<<distances[3]<<"\n";
-    string name="dots_p5_N"+to_string(Np)+"_w"+to_string(Lbox)+".csv";
+    string name="dots_"+name1;
     save_as_csv(pos, pos_c,name);
 
     /*for(uint16_t d=0; d<d_size; d++){
         cout<<d<<"-"<<distances[d]<<" | ";
     }*/
-    string dists="distances_pf_N"+to_string(Np)+"_w"+to_string(Lbox)+"_95_1g.csv";
+    string dists="distances_"+name1;
     save_dist_plot(dists);
     /*for(int i=0; i<Np;i++){
         pos[i].print();
