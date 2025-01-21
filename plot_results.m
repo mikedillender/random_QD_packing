@@ -1,4 +1,4 @@
-csvFile1 = "distances_z1998_p0_w90_g2_c999.csv"; % Your CSV file
+csvFile1 = "distances_z2482_p722_w180_g1_c900.csv"; % Your CSV file
 %csvFile1 = "distances_z2151_p797_w90_g2_c95.csv"; % Your CSV file
 data2 = csvread(csvFile1);
 figure()

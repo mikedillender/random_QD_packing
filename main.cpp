@@ -292,7 +292,7 @@ void get_nns(uint32_t i, const vec3 pos[], const cell_pos pos_c[], ofstream *fil
     //cout<<i<<": ";
     //cout<<"["<<closest.size()<<"] ";
     int num=0;
-    for(uint32_t k=0; k<min(closest.size(),size_t(12));k++){
+    for(uint32_t k=0; k<min(closest.size(),size_t(16));k++){
         //if(closest[k].r>8){break;}
         //if(k<4)
         //    cout<<closest[k].i<<" ("<<closest[k].r<<"), ";
@@ -363,11 +363,11 @@ void save_dist_plot(const std::string& filename) {
 int main(/*int argc=0, char** argv=nullptr*/){
     //std::ios_base::sync_with_stdio(false);
     srand((unsigned) time(NULL));
-    double grav=0.2; double cooling =.999;
+    double grav=0.2; double cooling =.7;
 
     d_res=.003;
     z_res=.25;
-    Lbox=90;
+    Lbox=180;
     cell_w=3;
     ncell=(2*Lbox)/cell_w;
     max_z_cell=(uint8_t)ncell-1;
@@ -485,9 +485,9 @@ int main(/*int argc=0, char** argv=nullptr*/){
             cout<<iter<<": avg z = "<<avg_z<<", T = "<<avg_T;
             if(iter>50){
                 cout<<" ("<<round(100*(avg_T/last_E))<<"%)";
-                if (avg_T/last_E>.99 && avg_T/last_E<1. && last_az-avg_z<.001){
+                if (avg_T/last_E>.97 && avg_T/last_E<1. && last_az-avg_z<.005){
                     dt=dt/2;
-                    if(avg_T<.0001 && last_az-avg_z<.0001){
+                    if(avg_T<.001 && last_az-avg_z<.0001){
                         iter=5000;
                     }
                 }
