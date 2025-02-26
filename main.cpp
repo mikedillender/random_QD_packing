@@ -127,18 +127,26 @@ void set_init(vec3 pos[],cell_pos pos_c[]){
     double y1= -Lbox;
     double z1= -Lbox;
     double step=2.5;
-    for(int i=0; i<Np;i++){
+    double step0=2.5;
+    bool final= false;
+    int i=0;
+    double per_layer=(2*Lbox/step)*(2*Lbox/step);
+    for(; i<Np;i++){
         pos[i].x = x1+1+(step-2)*((rand()%1000)/1000.0);
         pos[i].y = y1+1+(step-2)*((rand()%1000)/1000.0);
         pos[i].z = z1+1+(step-2)*((rand()%1000)/1000.0);
         pos_c[i].set(pos[i],i);
-        x1=pos[i].x+1;
+        x1+=step;
         if(x1+step>=Lbox){
             x1=-Lbox;
             y1+=step;
             if(y1+step>=Lbox){
                 y1=-Lbox;
-                z1+=step;
+                z1+=step0;
+                if(Np-i<per_layer && !final){
+                    step=(2*Lbox-2)/sqrt(Np-i);
+                    final= true;
+                }
                 if(z1+step>=Lbox){
                     cout<<"can't fit all in box\n";
                     exit(1);
@@ -363,7 +371,7 @@ void save_dist_plot(const std::string& filename) {
 int main(/*int argc=0, char** argv=nullptr*/){
     //std::ios_base::sync_with_stdio(false);
     srand((unsigned) time(NULL));
-    double grav=0.2; double cooling =.7;
+    double grav=0.2; double cooling =.990;
 
     d_res=.003;
     z_res=.25;
